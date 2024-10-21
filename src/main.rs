@@ -6,12 +6,12 @@ mod jellyfin;
 use config::Config;
 use eframe::egui;
 use jellyfin::Album;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 fn main() {
-    let config = Config::load("config.toml").expect("Expected config.toml to exist and contain a valid config file");
     let rt = tokio::runtime::Runtime::new().expect("Should have created tokio Runtime.");
 
     // Enter the runtime so that `tokio::spawn` is available immediately.
@@ -29,12 +29,14 @@ fn main() {
     let _ = eframe::run_native(
         "shork - jellyfin music player",
         eframe::NativeOptions::default(),
-        Box::new(|_cc| Ok(Box::new(ShorkApp::new(config)))),
+        Box::new(|cc| Ok(Box::new(ShorkApp::new(cc)))),
     );
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 enum View {
+    Fetching,
+    Config,
     Home,
     Album(Album),
     Artist(String),
@@ -53,25 +55,83 @@ struct ShorkApp {
 }
 
 impl ShorkApp {
-    fn new(config: Config) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
 
         let artists = HashMap::new();
 
         let view = View::Home;
 
-        Self { tx, rx, config, artists, view }
+        let config = Config::default();
+
+        let mut slf = Self { tx, rx, config, artists, view };
+
+        if let Some(storage) = cc.storage {
+            if let Some(config) = eframe::get_value(storage, "shork/config") {
+                slf.config = config;
+            }
+
+            if let Some(artists) = eframe::get_value(storage, "shork/artists") {
+                slf.artists = artists;
+            }
+
+            if let Some(view) = eframe::get_value(storage, "shork/view") {
+                slf.view = view;
+            }
+        }
+
+        slf
+    }
+
+    fn update_config(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("Configuration");
+            ui.label("Server");
+            ui.text_edit_singleline(&mut self.config.server);
+            ui.label("API Token");
+            ui.text_edit_singleline(&mut self.config.token);
+            if ui.button("Done").clicked() {
+                self.fetch_data(ctx);
+                self.view = View::Fetching;
+            }
+        });
+    }
+
+    fn fetch_data(&self, ctx: &egui::Context) {
+        fetch_info(self.config.clone(), self.tx.clone(), ctx.clone());
     }
 }
 
 impl eframe::App for ShorkApp {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, "shork/config", &self.config);
+        eframe::set_value(storage, "shork/artists", &self.artists);
+        eframe::set_value(storage, "shork/view", &self.view);
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Ok(artists) = self.rx.try_recv() {
             self.artists = artists;
+            if self.view == View::Fetching {
+                self.view = View::Home;
+            }
+        }
+
+        if self.config.server.is_empty() || self.config.token.is_empty() {
+            self.view = View::Config;
+        }
+
+        if self.view == View::Config {
+            self.update_config(ctx);
+            return;
         }
 
         egui::TopBottomPanel::top("top-panel").show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                if ui.button("Configure").clicked() {
+                    self.view = View::Config;
+                }
+
                 if ui.button("Refresh").clicked() {
                     fetch_info(self.config.clone(), self.tx.clone(), ctx.clone());
                 }
@@ -108,6 +168,8 @@ impl eframe::App for ShorkApp {
                         View::Album(album) => self.view_album(ctx, ui, &album),
                         View::Artist(artist_name) => self.view_artist(ctx, ui, &artist_name),
                         View::Home => self.view_home(ctx, ui),
+                        View::Fetching => self.view_fetching(ctx, ui),
+                        View::Config => { /* do nothing */ },
                     }
                 });
             });
@@ -116,7 +178,11 @@ impl eframe::App for ShorkApp {
 }
 
 impl ShorkApp {
-    fn view_home(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+    fn view_fetching(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
+        ui.heading("Fetching data from server.");
+    }
+
+    fn view_home(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         for (artist_name, _albums) in &self.artists {
             let btn = egui::Button::opt_image_and_text(None, Some(artist_name.into()))
                 .wrap_mode(egui::TextWrapMode::Truncate);

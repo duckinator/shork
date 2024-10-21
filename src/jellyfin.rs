@@ -1,8 +1,8 @@
 use crate::config::Config;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Item {
     album_artist: Option<String>,
@@ -23,7 +23,7 @@ pub struct Item {
     //item_type: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct Track {
     pub name: String,
     pub id: String,
@@ -40,13 +40,13 @@ impl Track {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 struct Items {
     items: Vec<Item>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct Album {
     pub name: String,
     pub id: String,
