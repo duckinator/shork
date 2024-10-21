@@ -33,6 +33,13 @@ fn main() {
     );
 }
 
+#[derive(Clone)]
+enum View {
+    Home,
+    Album(Album),
+    Artist(String),
+}
+
 struct ShorkApp {
     // Sender/Receiver for async notifications.
     tx: Sender<HashMap<String, Vec<Album>>>,
@@ -41,6 +48,8 @@ struct ShorkApp {
     config: Config,
 
     artists: HashMap<String, Vec<Album>>,
+
+    view: View,
 }
 
 impl ShorkApp {
@@ -49,7 +58,9 @@ impl ShorkApp {
 
         let artists = HashMap::new();
 
-        Self { tx, rx, config, artists }
+        let view = View::Home;
+
+        Self { tx, rx, config, artists, view }
     }
 }
 
@@ -57,23 +68,81 @@ impl eframe::App for ShorkApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Ok(artists) = self.rx.try_recv() {
             self.artists = artists;
-
-            for (name, albums) in &self.artists {
-                println!("{}", name);
-                for album in albums.iter() {
-                    println!("- {}", album.name);
-                    /*for track in album.tracks {
-                        println!("- - {:?}", track);
-                    }*/
-                }
-            }
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if ui.button("Fetch data").clicked() {
-                fetch_info(self.config.clone(), self.tx.clone(), ctx.clone());
-            }
+        egui::TopBottomPanel::top("top-panel").show(ctx, |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                if ui.button("Refresh").clicked() {
+                    fetch_info(self.config.clone(), self.tx.clone(), ctx.clone());
+                }
+
+                if ui.button("Artists").clicked() {
+                    self.view = View::Home;
+                }
+
+                if let View::Artist(artist_name) = &self.view {
+                    if ui.button(artist_name).clicked() {
+                        self.view = View::Artist(artist_name.clone());
+                    }
+                }
+
+                if let View::Album(album) = &self.view {
+                    let name = album.name.clone();
+                    if ui.button(&album.artist_name).clicked() {
+                        self.view = View::Artist(album.artist_name.clone());
+                    }
+
+                    let _ = ui.button(&name);
+                }
+            });
         });
+
+        egui::TopBottomPanel::bottom("bottom-panel").show(ctx, |ui| {
+            ui.label("bottom");
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP).with_main_wrap(true), |ui| {
+                    match self.view.clone() {
+                        View::Album(album) => self.view_album(ctx, ui, &album),
+                        View::Artist(artist_name) => self.view_artist(ctx, ui, &artist_name),
+                        View::Home => self.view_home(ctx, ui),
+                    }
+                });
+            });
+        });
+    }
+}
+
+impl ShorkApp {
+    fn view_home(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        for (artist_name, _albums) in &self.artists {
+            let btn = egui::Button::opt_image_and_text(None, Some(artist_name.into()))
+                .wrap_mode(egui::TextWrapMode::Truncate);
+
+            if ui.add_sized(egui::vec2(100.0, 100.0), btn).clicked() {
+                self.view = View::Artist(artist_name.clone());
+            }
+        }
+    }
+
+    fn view_artist(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, artist_name: &str) {
+        for album in &self.artists[artist_name] {
+            let btn = egui::Button::opt_image_and_text(None, Some(album.name.clone().into()))
+                .wrap_mode(egui::TextWrapMode::Truncate);
+            if ui.add_sized(egui::vec2(100.0, 100.0), btn).clicked() {
+                self.view = View::Album(album.clone());
+            }
+        }
+    }
+
+    fn view_album(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, album: &Album) {
+        for track in &album.tracks {
+            if ui.button(&track.name).clicked() {
+                println!("{:?}", track.stream_url);
+            }
+        }
     }
 }
 

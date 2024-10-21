@@ -6,9 +6,9 @@ use std::collections::HashMap;
 #[serde(rename_all = "PascalCase")]
 pub struct Item {
     album_artist: Option<String>,
-    name: String,
+    pub name: String,
     //server_id: String,
-    id: String,
+    pub id: String,
     //channel_id: Option<String>,
     //is_folder: bool,
     //Type: String,
@@ -23,25 +23,44 @@ pub struct Item {
     //item_type: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct Track {
+    pub name: String,
+    pub id: String,
+    pub stream_url: String,
+}
+
+impl Track {
+    fn new(item: &Item, stream_url: String) -> Self {
+        Self {
+            name: item.name.clone(),
+            id: item.id.clone(),
+            stream_url: stream_url.clone(),
+        }
+    }
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 struct Items {
     items: Vec<Item>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Album {
     pub name: String,
     pub id: String,
     pub artist_name: String,
+    pub tracks: Vec<Track>,
 }
 
 impl Album {
-    pub fn new(artist_name: &str, album: &Item) -> Self {
+    pub fn new(artist_name: &str, album: &Item, tracks: Vec<Track>) -> Self {
         Self {
             name: album.name.clone(),
             id: album.id.clone(),
             artist_name: artist_name.to_string(),
+            tracks: tracks,
         }
     }
 }
@@ -88,13 +107,44 @@ impl Client {
                 artists.insert(artist_name.to_string(), vec![]);
             }
 
-            let album = Album::new(artist_name, album);
+            let album = Album::new(artist_name, album, self.album_playlist(&album).await?);
 
-            artists.get_mut(artist_name).expect("artists HashMap should have specified artist").push(album);
+            artists.get_mut(artist_name)
+                .expect("artists[artist_name] should be created only a few lines before this")
+                .push(album);
         }
 
         Ok(artists)
     }
+
+
+    pub async fn album_playlist(&self, album: &Item) -> Result<Vec<Track>, Box<dyn std::error::Error>> {
+        let endpoint = format!("{}/Items?parentId={}&includeItemTypes=Audio", self.config.server, album.id);
+        let body = self.client.get(endpoint)
+            .header("Authorization", self.auth())
+            .send()
+            .await?
+            .text()
+            .await?;
+
+        let items: Items = serde_json::from_str(&body)?;
+
+        let tracks: Vec<Track> = items.items.iter()
+            .map(|item| Track::new(item, self.stream_url(item)))
+            .collect();
+
+        Ok(tracks)
+    }
+
+    pub fn stream_url(&self, item: &Item) -> String {
+        format!("{}/Audio/{}/stream", self.config.server, item.id)
+    }
+    // Track information for Album: /Items?parentId={album.id}
+
+
+    // Track information for Album: /Items?parentId={album.id}
+    // Stream for track: /Audio/{track.id}/stream
+    //
 
     // Artists
     // GET:
@@ -116,13 +166,5 @@ impl Client {
     // HlsSegment
     // /Audio/{itemId}/hls/{segmentId}/stream.aac
     // /Audio/{itemId}/hls/{segmentId}/stream.mp3
-    //
-    // Image
-    // /Artists/{name}/Images/{imageType}/{imageIndex}
-    // /Items/{itemId}/Images
-    // /Items/{itemId}/Images/{imageType}
-    // /Items/{itemId}/Images/{imageType}/{imageIndex}
-    //
-    // /Items
 }
 
