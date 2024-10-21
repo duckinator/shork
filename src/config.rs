@@ -1,7 +1,7 @@
 use std::error::Error;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     pub server: String,
     pub token: String,

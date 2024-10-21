@@ -1,9 +1,11 @@
 use crate::config::Config;
 use serde::Deserialize;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Item {
+    album_artist: Option<String>,
     name: String,
     //server_id: String,
     id: String,
@@ -15,20 +17,10 @@ pub struct Item {
     //backdrop_image_tags: Vec<String>,
     //image_blur_hashes: HashMap<String, String>,
     //location_type: String,
-    media_type: String,
+    //media_type: String,
 
-    #[serde(flatten)]
-    item_type: ItemVariant,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(tag = "Type")]
-pub enum ItemVariant {
-    Audio,
-    Folder,
-    ManualPlaylistsFolder,
-    MusicAlbum,
-    MusicArtist,
+    //#[serde(rename = "Type")]
+    //item_type: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -38,37 +30,18 @@ struct Items {
 }
 
 #[derive(Debug)]
-pub struct Artist {
-    pub name: String,
-    pub id: String,
-    pub albums: Vec<Album>,
-}
-
-impl Artist {
-    pub fn new(artist: &Item, albums: Vec<Album>) -> Self {
-        Self {
-            name: artist.name.clone(),
-            id: artist.id.clone(),
-            albums: albums,
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct Album {
     pub name: String,
     pub id: String,
     pub artist_name: String,
-    pub artist_id: String,
 }
 
 impl Album {
-    pub fn new(artist: &Item, album: &Item) -> Self {
+    pub fn new(artist_name: &str, album: &Item) -> Self {
         Self {
             name: album.name.clone(),
             id: album.id.clone(),
-            artist_name: artist.name.clone(),
-            artist_id: artist.id.clone(),
+            artist_name: artist_name.to_string(),
         }
     }
 }
@@ -88,8 +61,8 @@ impl Client {
         format!("MediaBrowser Token=\"{}\"", self.config.token)
     }
 
-    pub async fn toplevel_item(&self, variant: ItemVariant, name: &str) -> Result<Item, Box<dyn std::error::Error>> {
-        let endpoint = format!("{}/Items", self.config.server);
+    pub async fn artist_albums(&self) -> Result<HashMap<String, Vec<Album>>, Box<dyn std::error::Error>> {
+        let endpoint = format!("{}/Items?recursive=true&sortOrder=Ascending&includeItemTypes=MusicAlbum", self.config.server);
         let body = self.client.get(endpoint)
             .header("Authorization", self.auth())
             .send()
@@ -98,49 +71,30 @@ impl Client {
             .await?;
 
         let items: Items = serde_json::from_str(&body)?;
-        let folders: Vec<&Item> = items.items.iter()
-            .filter(|x| x.item_type == variant && x.name == name)
-            .collect();
 
-        let no_match: Box<dyn std::error::Error> = format!("No folder named {}", name).into();
-        folders.get(0).ok_or(no_match).copied().cloned()
-    }
+        let albums = items.items;
 
-    pub async fn items(&self, parent_id: &str, variant: ItemVariant) -> Result<Vec<Item>, Box<dyn std::error::Error>> {
-        let endpoint = format!("{}/Items?parentId={}", self.config.server, parent_id);
-        let body = self.client.get(endpoint)
-            .header("Authorization", self.auth())
-            .send()
-            .await?
-            .text()
-            .await?;
+        let mut artists: HashMap<String, Vec<Album>> = HashMap::new();
 
-        let items: Items = serde_json::from_str(&body)?;
-        Ok(items.items.iter()
-            .cloned()
-            .filter(|x| x.item_type == variant)
-            .collect()
-        )
-    }
+        for album in albums.iter() {
+            let artist_name: &str =
+                if let Some(an) = album.album_artist.clone() {
+                    &an.clone()
+                } else {
+                    "unknown"
+                };
 
-    pub async fn artist_albums(&self) -> Result<Vec<Artist>, Box<dyn std::error::Error>> {
-        let parent = self.toplevel_item(ItemVariant::Folder, "Music").await?;
-
-        let artists = self.items(&parent.id, ItemVariant::MusicArtist).await?;
-
-        let mut results: Vec<Artist> = vec![];
-
-        for artist in artists.iter() {
-            let mut albums: Vec<Album> = vec![];
-            for album in self.items(&artist.id, ItemVariant::MusicAlbum).await? {
-                albums.push(Album::new(&artist, &album));
+            if !artists.contains_key(artist_name) {
+                artists.insert(artist_name.to_string(), vec![]);
             }
-            results.push(Artist::new(&artist, albums));
+
+            let album = Album::new(artist_name, album);
+
+            artists.get_mut(artist_name).expect("artists HashMap should have specified artist").push(album);
         }
 
-        Ok(results)
+        Ok(artists)
     }
-
 
     // Artists
     // GET:
