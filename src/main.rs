@@ -133,11 +133,29 @@ impl eframe::App for ShorkApp {
         }
 
         egui::TopBottomPanel::bottom("bottom-panel").show(ctx, |ui| {
-            ui.label("bottom");
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
+                if ui.button("Previous").clicked() {
+                    let _ = self.audio_command_tx.send(AudioCommand::Previous);
+                }
 
-            if ui.button("Configure").clicked() {
-                self.show_config = true;
-            }
+                if let AudioState::Playing(_) = self.audio_state {
+                    if ui.button("Pause").clicked() {
+                        let _ = self.audio_command_tx.send(AudioCommand::Pause);
+                    }
+                } else {
+                    if ui.button("Play").clicked() {
+                        let _ = self.audio_command_tx.send(AudioCommand::Resume);
+                    }
+                }
+
+                if ui.button("Next").clicked() {
+                    let _ = self.audio_command_tx.send(AudioCommand::Next);
+                }
+
+                if ui.button("Configure").clicked() {
+                    self.show_config = true;
+                }
+            });
         });
 
         egui::SidePanel::left("left-panel").show(ctx, |ui| {

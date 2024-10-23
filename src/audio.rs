@@ -16,9 +16,11 @@ pub enum AudioCommand {
     Resume,
     ClearQueue,
     Stop,
+    Previous,
+    Next,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AudioState {
     Playing(Track),
     Paused,
@@ -59,7 +61,17 @@ impl Audio {
             AudioCommand::Resume => self.resume(),
             AudioCommand::Stop => self.stop(),
             AudioCommand::ClearQueue => self.clear_queue(),
+            AudioCommand::Previous => self.previous_track(),
+            AudioCommand::Next => self.next_track(),
         }
+    }
+
+    fn previous_track(&mut self) {
+        println!("previous");
+    }
+
+    fn next_track(&mut self) {
+        println!("next");
     }
 
     fn update_state(&mut self, state: AudioState) {
