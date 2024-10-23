@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
 
+mod audio;
 mod config;
 mod jellyfin;
 
+use audio::{Audio, AudioCommand, AudioState};
 use config::Config;
 use eframe::egui;
 use jellyfin::Album;
@@ -33,6 +35,10 @@ fn main() {
     );
 }
 
+fn spawn_audio_thread(config: Config, audio_command_rx: Receiver<AudioCommand>, audio_state_tx: Sender<AudioState>) {
+    std::thread::spawn(move || Audio::new(config, audio_command_rx, audio_state_tx).main_loop());
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 enum View {
     Home,
@@ -43,8 +49,14 @@ enum View {
 
 struct ShorkApp {
     // Sender/Receiver for async notifications.
-    tx: Sender<HashMap<String, Vec<Album>>>,
-    rx: Receiver<HashMap<String, Vec<Album>>>,
+    data_tx: Sender<HashMap<String, Vec<Album>>>,
+    data_rx: Receiver<HashMap<String, Vec<Album>>>,
+
+    // Receiver for async audio control.
+    audio_command_tx: Sender<AudioCommand>,
+
+    audio_state_rx: Receiver<AudioState>,
+    audio_state: AudioState,
 
     config: Config,
 
@@ -58,11 +70,16 @@ struct ShorkApp {
 
 impl ShorkApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (data_tx, data_rx) = std::sync::mpsc::channel();
+        let (audio_command_tx, audio_command_rx) = std::sync::mpsc::channel();
+        let (audio_state_tx, audio_state_rx) = std::sync::mpsc::channel();
 
         let mut slf = Self {
-            tx: tx,
-            rx: rx,
+            data_tx: data_tx,
+            data_rx: data_rx,
+            audio_command_tx: audio_command_tx,
+            audio_state_rx: audio_state_rx,
+            audio_state: AudioState::Stopped,
             config: Config::default(),
             artists: HashMap::new(),
             show_config: false,
@@ -84,11 +101,13 @@ impl ShorkApp {
             }
         }
 
+        spawn_audio_thread(slf.config.clone(), audio_command_rx, audio_state_tx);
+
         slf
     }
 
     fn fetch_data(&self, ctx: &egui::Context) {
-        fetch_info(self.config.clone(), self.tx.clone(), ctx.clone());
+        fetch_info(self.config.clone(), self.data_tx.clone(), ctx.clone());
     }
 }
 
@@ -100,9 +119,13 @@ impl eframe::App for ShorkApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if let Ok(artists) = self.rx.try_recv() {
+        if let Ok(artists) = self.data_rx.try_recv() {
             self.artists = artists;
             self.fetching_data = false;
+        }
+
+        if let Ok(audio_state) = self.audio_state_rx.try_recv() {
+            self.audio_state = audio_state;
         }
 
         if self.config.server.is_empty() || self.config.token.is_empty() {
@@ -209,10 +232,16 @@ impl ShorkApp {
                 self.view = View::Artist(album.artist_name.clone());
             }
 
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                if ui.button("Play").clicked() {
+                    let _ = self.audio_command_tx.send(AudioCommand::PlayAlbum(album.clone()));
+                }
+            });
+
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
                 for track in &album.tracks {
                     if ui.button(&track.name).clicked() {
-                        println!("{:?}", track.stream_url);
+                        let _ = self.audio_command_tx.send(AudioCommand::PlayTrack(track.clone()));
                     }
                 }
             });
@@ -220,7 +249,7 @@ impl ShorkApp {
     }
 }
 
-fn fetch_info(config: Config, tx: Sender<HashMap<String, Vec<Album>>>, ctx: egui::Context) {
+fn fetch_info(config: Config, data_tx: Sender<HashMap<String, Vec<Album>>>, ctx: egui::Context) {
     // This gets run in the thread set up in main().
     tokio::spawn(async move {
         let client = jellyfin::Client::new(config);
@@ -230,7 +259,7 @@ fn fetch_info(config: Config, tx: Sender<HashMap<String, Vec<Album>>>, ctx: egui
             .expect("Artist + album information should be available from the server");
 
         // Notify the GUI thread of the fetched data.
-        let _ = tx.send(artists);
+        let _ = data_tx.send(artists);
 
         ctx.request_repaint();
     });

@@ -76,14 +76,10 @@ impl Client {
         Self { config, client }
     }
 
-    fn auth(&self) -> String {
-        format!("MediaBrowser Token=\"{}\"", self.config.token)
-    }
-
     pub async fn artist_albums(&self) -> Result<HashMap<String, Vec<Album>>, Box<dyn std::error::Error>> {
         let endpoint = format!("{}/Items?recursive=true&sortOrder=Ascending&includeItemTypes=MusicAlbum", self.config.server);
         let body = self.client.get(endpoint)
-            .header("Authorization", self.auth())
+            .header("Authorization", self.config.auth())
             .send()
             .await?
             .text()
@@ -121,7 +117,7 @@ impl Client {
     pub async fn album_playlist(&self, album: &Item) -> Result<Vec<Track>, Box<dyn std::error::Error>> {
         let endpoint = format!("{}/Items?parentId={}&includeItemTypes=Audio", self.config.server, album.id);
         let body = self.client.get(endpoint)
-            .header("Authorization", self.auth())
+            .header("Authorization", self.config.auth())
             .send()
             .await?
             .text()

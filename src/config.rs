@@ -6,3 +6,9 @@ pub struct Config {
     pub token: String,
     pub folder: String,
 }
+
+impl Config {
+    pub fn auth(&self) -> String {
+        format!("MediaBrowser Token=\"{}\"", self.token)
+    }
+}
