@@ -1,6 +1,6 @@
 use crate::config::Config;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -76,7 +76,7 @@ impl Client {
         Self { config, client }
     }
 
-    pub async fn artist_albums(&self) -> Result<HashMap<String, Vec<Album>>, Box<dyn std::error::Error>> {
+    pub async fn artist_albums(&self) -> Result<BTreeMap<String, Vec<Album>>, Box<dyn std::error::Error>> {
         let endpoint = format!("{}/Items?recursive=true&sortOrder=Ascending&includeItemTypes=MusicAlbum", self.config.server);
         let body = self.client.get(endpoint)
             .header("Authorization", self.config.auth())
@@ -89,7 +89,7 @@ impl Client {
 
         let albums = items.items;
 
-        let mut artists: HashMap<String, Vec<Album>> = HashMap::new();
+        let mut artists: BTreeMap<String, Vec<Album>> = BTreeMap::new();
 
         for album in albums.iter() {
             let artist_name: &str =

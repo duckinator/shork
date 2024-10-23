@@ -9,7 +9,7 @@ use config::Config;
 use eframe::egui;
 use jellyfin::Album;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
@@ -49,8 +49,8 @@ enum View {
 
 struct ShorkApp {
     // Sender/Receiver for async notifications.
-    data_tx: Sender<HashMap<String, Vec<Album>>>,
-    data_rx: Receiver<HashMap<String, Vec<Album>>>,
+    data_tx: Sender<BTreeMap<String, Vec<Album>>>,
+    data_rx: Receiver<BTreeMap<String, Vec<Album>>>,
 
     // Receiver for async audio control.
     audio_command_tx: Sender<AudioCommand>,
@@ -60,7 +60,7 @@ struct ShorkApp {
 
     config: Config,
 
-    artists: HashMap<String, Vec<Album>>,
+    artists: BTreeMap<String, Vec<Album>>,
 
     show_config: bool,
     fetching_data: bool,
@@ -81,7 +81,7 @@ impl ShorkApp {
             audio_state_rx: audio_state_rx,
             audio_state: AudioState::Stopped,
             config: Config::default(),
-            artists: HashMap::new(),
+            artists: BTreeMap::new(),
             show_config: false,
             fetching_data: false,
             view: View::Home,
@@ -267,7 +267,7 @@ impl ShorkApp {
     }
 }
 
-fn fetch_info(config: Config, data_tx: Sender<HashMap<String, Vec<Album>>>, ctx: egui::Context) {
+fn fetch_info(config: Config, data_tx: Sender<BTreeMap<String, Vec<Album>>>, ctx: egui::Context) {
     // This gets run in the thread set up in main().
     tokio::spawn(async move {
         let client = jellyfin::Client::new(config);
